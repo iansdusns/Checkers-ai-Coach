@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Trophy, TrendingUp, RefreshCw, X, Lightbulb } from "lucide-react";
+import { Trophy, TrendingUp, RefreshCw, X, Lightbulb, Star, Frown } from "lucide-react";
 import { Player } from "@/lib/checkers";
 
 interface CoachingModalProps {
@@ -8,8 +8,11 @@ interface CoachingModalProps {
   playerColor: Player;
   tips: string[];
   onRestart: () => void;
+  onMenu: () => void;
   onClose: () => void;
 }
+
+const tipIcons = ["💡", "🎯", "♟", "👑", "🔗", "⚠️", "✅"];
 
 export function CoachingModal({
   open,
@@ -17,6 +20,7 @@ export function CoachingModal({
   playerColor,
   tips,
   onRestart,
+  onMenu,
   onClose,
 }: CoachingModalProps) {
   const playerWon = winner === playerColor;
@@ -28,56 +32,60 @@ export function CoachingModal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          transition={{ duration: 0.25 }}
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/50 backdrop-blur-md"
           onClick={onClose}
           data-testid="coaching-modal-backdrop"
         >
           <motion.div
-            initial={{ scale: 0.85, opacity: 0, y: 20 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.9, opacity: 0, y: 10 }}
-            transition={{ type: "spring", stiffness: 300, damping: 25 }}
-            className="relative w-full max-w-md bg-card border border-card-border rounded-2xl shadow-2xl overflow-hidden"
+            initial={{ y: 80, opacity: 0, scale: 0.95 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: 40, opacity: 0, scale: 0.96 }}
+            transition={{ type: "spring", stiffness: 320, damping: 28 }}
+            className="
+              relative w-full sm:max-w-md
+              glass-strong
+              rounded-t-3xl sm:rounded-3xl
+              overflow-hidden
+            "
             onClick={(e) => e.stopPropagation()}
             data-testid="coaching-modal"
           >
-            {/* Header gradient */}
+            {/* Gradient header */}
             <div className={`
-              relative px-6 pt-8 pb-6 text-center overflow-hidden
+              relative px-6 pt-7 pb-6 text-center overflow-hidden
               ${playerWon
-                ? "bg-gradient-to-br from-amber-500/20 via-yellow-500/10 to-transparent"
-                : "bg-gradient-to-br from-violet-600/20 via-purple-500/10 to-transparent"
+                ? "bg-gradient-to-br from-amber-500/15 via-yellow-400/8 to-transparent"
+                : "bg-gradient-to-br from-violet-600/15 via-purple-500/8 to-transparent"
               }
             `}>
-              <div className="absolute inset-0 opacity-5"
-                style={{
-                  backgroundImage: "radial-gradient(circle at 50% 0%, white 0%, transparent 70%)"
-                }}
-              />
+              {/* Decorative rings */}
+              <div className="absolute -top-12 -right-12 w-32 h-32 rounded-full border border-white/10" />
+              <div className="absolute -top-6 -right-6 w-20 h-20 rounded-full border border-white/8" />
 
               <button
                 onClick={onClose}
-                className="absolute top-4 right-4 p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                className="absolute top-4 right-4 w-8 h-8 rounded-full bg-muted/60 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 data-testid="button-close-coaching"
               >
-                <X size={16} />
+                <X size={14} />
               </button>
 
               <motion.div
-                initial={{ scale: 0, rotate: -180 }}
+                initial={{ scale: 0.5, rotate: -20 }}
                 animate={{ scale: 1, rotate: 0 }}
-                transition={{ type: "spring", delay: 0.1, stiffness: 200, damping: 15 }}
+                transition={{ type: "spring", delay: 0.1, stiffness: 240, damping: 18 }}
                 className={`
-                  inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 mx-auto
+                  inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 mx-auto shadow-2xl
                   ${playerWon
-                    ? "bg-gradient-to-br from-amber-400 to-yellow-600 shadow-lg shadow-amber-500/30"
-                    : "bg-gradient-to-br from-violet-500 to-purple-700 shadow-lg shadow-violet-500/30"
+                    ? "bg-gradient-to-br from-amber-400 to-orange-600 shadow-amber-500/40"
+                    : "bg-gradient-to-br from-violet-500 to-purple-800 shadow-violet-500/40"
                   }
                 `}
               >
                 {playerWon
-                  ? <Trophy size={28} className="text-white" />
-                  : <TrendingUp size={28} className="text-white" />
+                  ? <Trophy size={30} className="text-white" />
+                  : <TrendingUp size={30} className="text-white" />
                 }
               </motion.div>
 
@@ -85,69 +93,78 @@ export function CoachingModal({
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.15 }}
-                className="text-2xl font-bold text-foreground mb-1"
+                className="text-2xl font-bold text-foreground mb-1.5"
               >
-                {playerWon ? "Victory!" : "Good Game"}
+                {playerWon ? "Victory! 🎉" : "Tough Game"}
               </motion.h2>
-
               <motion.p
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
                 transition={{ delay: 0.2 }}
-                className="text-muted-foreground text-sm"
+                className="text-sm text-muted-foreground"
               >
                 {playerWon
-                  ? "You defeated the AI. Here's what went well."
-                  : "The AI won this round. Here's how to improve."}
+                  ? "You outplayed the AI. Here's what made you great."
+                  : "The AI got you this time. Here's your coaching report."}
               </motion.p>
             </div>
 
-            {/* Tips section */}
-            <div className="px-6 pb-6 space-y-3">
-              <div className="flex items-center gap-2 mb-4">
-                <Lightbulb size={14} className="text-primary" />
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            {/* Tips */}
+            <div className="px-5 pb-6 space-y-2.5 max-h-[50vh] overflow-y-auto">
+              <div className="flex items-center gap-2 py-2">
+                <Lightbulb size={13} className="text-primary flex-shrink-0" />
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
                   AI Coaching Analysis
-                </span>
+                </p>
               </div>
 
               {tips.map((tip, i) => (
                 <motion.div
                   key={i}
-                  initial={{ opacity: 0, x: -16 }}
+                  initial={{ opacity: 0, x: -12 }}
                   animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.25 + i * 0.08 }}
-                  className="flex gap-3 p-3 rounded-xl bg-muted/60 border border-border/50"
+                  transition={{ delay: 0.22 + i * 0.07, type: "spring", stiffness: 280, damping: 24 }}
+                  className="flex gap-3 p-3 rounded-2xl bg-muted/40 border border-border/40"
                   data-testid={`coaching-tip-${i}`}
                 >
-                  <div className={`
-                    flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center mt-0.5 text-[10px] font-bold
-                    ${playerWon ? "bg-amber-500/20 text-amber-600 dark:text-amber-400" : "bg-primary/20 text-primary"}
-                  `}>
-                    {i + 1}
-                  </div>
+                  <span className="text-base flex-shrink-0 mt-0.5">{tipIcons[i % tipIcons.length]}</span>
                   <p className="text-sm text-foreground/90 leading-relaxed">{tip}</p>
                 </motion.div>
               ))}
 
-              <motion.button
+              {/* Buttons */}
+              <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 + tips.length * 0.08 }}
-                onClick={onRestart}
-                className={`
-                  w-full mt-2 py-3 px-4 rounded-xl font-semibold text-sm flex items-center justify-center gap-2
-                  transition-all duration-150 active:scale-[0.98]
-                  ${playerWon
-                    ? "bg-gradient-to-r from-amber-500 to-yellow-600 text-white hover:from-amber-400 hover:to-yellow-500 shadow-md shadow-amber-500/25"
-                    : "bg-gradient-to-r from-primary to-violet-600 text-white hover:opacity-90 shadow-md shadow-primary/25"
-                  }
-                `}
-                data-testid="button-play-again"
+                transition={{ delay: 0.28 + tips.length * 0.07 }}
+                className="flex flex-col gap-2 pt-2"
               >
-                <RefreshCw size={15} />
-                Play Again
-              </motion.button>
+                <button
+                  onClick={onRestart}
+                  className={`
+                    w-full py-3.5 px-4 rounded-2xl font-semibold text-sm flex items-center justify-center gap-2
+                    transition-all duration-150 active:scale-[0.98] text-white shadow-lg
+                    ${playerWon
+                      ? "bg-gradient-to-r from-amber-500 to-orange-600 shadow-amber-500/25 hover:from-amber-400 hover:to-orange-500"
+                      : "bg-gradient-to-r from-violet-600 to-purple-700 shadow-violet-500/25 hover:from-violet-500 hover:to-purple-600"
+                    }
+                  `}
+                  data-testid="button-play-again"
+                >
+                  <RefreshCw size={15} />
+                  Play Again
+                </button>
+                <button
+                  onClick={onMenu}
+                  className="
+                    w-full py-2.5 px-4 rounded-2xl text-xs font-medium text-muted-foreground
+                    hover:text-foreground hover:bg-muted/40 transition-all duration-150
+                  "
+                  data-testid="button-menu-from-modal"
+                >
+                  Main Menu
+                </button>
+              </motion.div>
             </div>
           </motion.div>
         </motion.div>
