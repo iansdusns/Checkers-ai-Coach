@@ -2,17 +2,16 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Board } from "@/components/Board";
 import { GamePanel } from "@/components/GamePanel";
-import { CoachingModal } from "@/components/CoachingModal";
+import { CoachPanel } from "@/components/CoachPanel";
 import { GameMenu } from "@/components/GameMenu";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useGame, Difficulty } from "@/hooks/useGame";
 
-type Screen = "menu" | "game";
+type Screen = "menu" | "game" | "coach";
 
 export default function Game() {
   const [screen, setScreen] = useState<Screen>("menu");
   const { state, selectCell, resetGame, setDifficulty } = useGame();
-  const [showModal, setShowModal] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     try {
       const stored = localStorage.getItem("theme");
@@ -21,20 +20,19 @@ export default function Game() {
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   });
 
+  // Apply theme
   useEffect(() => {
-    const root = document.documentElement;
-    root.classList.toggle("dark", theme === "dark");
+    document.documentElement.classList.toggle("dark", theme === "dark");
     try { localStorage.setItem("theme", theme); } catch {}
   }, [theme]);
 
+  // Auto-navigate to coach panel when game ends
   useEffect(() => {
-    if (state.status === "game_over") {
-      const t = setTimeout(() => setShowModal(true), 700);
+    if (state.status === "game_over" && screen === "game") {
+      const t = setTimeout(() => setScreen("coach"), 900);
       return () => clearTimeout(t);
-    } else {
-      setShowModal(false);
     }
-  }, [state.status, state.winner]);
+  }, [state.status, screen]);
 
   const handleStart = (diff: Difficulty) => {
     setDifficulty(diff);
@@ -42,14 +40,13 @@ export default function Game() {
     setScreen("game");
   };
 
-  const handleMenu = () => {
-    setShowModal(false);
-    setScreen("menu");
+  const handleRestart = () => {
+    resetGame();
+    setScreen("game");
   };
 
-  const handleRestart = () => {
-    setShowModal(false);
-    resetGame();
+  const handleMenu = () => {
+    setScreen("menu");
   };
 
   const disabled =
@@ -57,18 +54,30 @@ export default function Game() {
 
   return (
     <div className="relative min-h-screen mesh-bg" data-testid="game-page">
-      {/* Fixed background orbs */}
+      {/* Background orbs */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
         <div className="absolute top-[-15%] right-[-5%] w-[600px] h-[600px] rounded-full bg-violet-600/8 dark:bg-violet-600/12 blur-[120px]" />
         <div className="absolute bottom-[-15%] left-[-5%] w-[500px] h-[500px] rounded-full bg-indigo-500/6 dark:bg-indigo-500/10 blur-[100px]" />
       </div>
 
       <AnimatePresence mode="wait">
-        {screen === "menu" ? (
-          <motion.div key="menu" className="relative z-10">
+
+        {/* ── MENU ── */}
+        {screen === "menu" && (
+          <motion.div
+            key="menu"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, scale: 0.97 }}
+            transition={{ duration: 0.25 }}
+            className="relative z-10"
+          >
             <GameMenu onStart={handleStart} />
           </motion.div>
-        ) : (
+        )}
+
+        {/* ── GAME ── */}
+        {screen === "game" && (
           <motion.div
             key="game"
             initial={{ opacity: 0, y: 20 }}
@@ -83,21 +92,23 @@ export default function Game() {
                 <button
                   onClick={handleMenu}
                   className="flex items-center gap-2.5 hover:opacity-80 transition-opacity"
+                  data-testid="button-header-logo"
                 >
                   <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center shadow-sm">
-                    <span className="text-white text-xs font-bold">♟</span>
+                    <span className="text-white text-xs">♟</span>
                   </div>
-                  <span className="font-semibold text-sm text-foreground tracking-tight hidden sm:block">Checkers</span>
+                  <span className="font-semibold text-sm text-foreground tracking-tight hidden sm:block">
+                    Checkers
+                  </span>
                 </button>
 
                 <div className="flex items-center gap-2">
-                  {/* AI thinking indicator */}
                   <AnimatePresence>
                     {state.status === "ai_thinking" && (
                       <motion.div
-                        initial={{ opacity: 0, scale: 0.8 }}
+                        initial={{ opacity: 0, scale: 0.85 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.8 }}
+                        exit={{ opacity: 0, scale: 0.85 }}
                         className="flex items-center gap-2 px-3 py-1.5 rounded-xl glass border border-violet-400/25"
                       >
                         <motion.div
@@ -110,6 +121,16 @@ export default function Game() {
                     )}
                   </AnimatePresence>
 
+                  {state.status === "game_over" && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.85 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="px-3 py-1.5 rounded-xl glass border border-amber-400/25"
+                    >
+                      <span className="text-xs font-medium text-amber-400">Loading analysis…</span>
+                    </motion.div>
+                  )}
+
                   <ThemeToggle
                     theme={theme}
                     onToggle={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
@@ -118,15 +139,15 @@ export default function Game() {
               </div>
             </header>
 
-            {/* Main layout */}
+            {/* Main content */}
             <main className="flex-1 flex flex-col lg:flex-row items-start justify-center gap-6 p-4 sm:p-6 max-w-5xl mx-auto w-full pt-6">
 
-              {/* Board column */}
+              {/* Board section */}
               <div className="flex flex-col items-center gap-4 w-full lg:flex-1">
                 {/* Turn hint */}
                 <AnimatePresence mode="wait">
                   <motion.p
-                    key={state.status + state.currentPlayer + (state.selectedCell ? "sel" : "")}
+                    key={state.status + state.currentPlayer + (state.selectedCell ? "s" : "")}
                     initial={{ opacity: 0, y: -6 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 6 }}
@@ -141,15 +162,11 @@ export default function Game() {
                           : "Select a red piece to move"
                     )}
                     {state.status === "ai_thinking" && "Opponent is thinking..."}
-                    {state.status === "game_over" && (
-                      state.winner === state.playerColor
-                        ? "Brilliant! You won 🎉"
-                        : "AI wins. Better luck next time!"
-                    )}
+                    {state.status === "game_over" && "Preparing your coaching report…"}
                   </motion.p>
                 </AnimatePresence>
 
-                {/* Board with labels spacing */}
+                {/* Board */}
                 <div className="pl-7 pb-6">
                   <Board
                     board={state.board}
@@ -182,20 +199,19 @@ export default function Game() {
             </main>
           </motion.div>
         )}
-      </AnimatePresence>
 
-      {/* Coaching modal */}
-      {state.winner && (
-        <CoachingModal
-          open={showModal}
-          winner={state.winner}
-          playerColor={state.playerColor}
-          tips={state.coachingTips}
-          onRestart={handleRestart}
-          onMenu={handleMenu}
-          onClose={() => setShowModal(false)}
-        />
-      )}
+        {/* ── COACH PANEL ── */}
+        {screen === "coach" && state.gameSummary && (
+          <CoachPanel
+            key="coach"
+            summary={state.gameSummary}
+            playerColor={state.playerColor}
+            onRestart={handleRestart}
+            onMenu={handleMenu}
+          />
+        )}
+
+      </AnimatePresence>
     </div>
   );
 }

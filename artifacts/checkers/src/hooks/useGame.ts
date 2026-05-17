@@ -4,15 +4,16 @@ import {
   Player,
   Move,
   Position,
-  GameEvent,
+  KeyMoment,
+  GameSummary,
   createInitialBoard,
   getAllMoves,
   getMovesFrom,
   applyMove,
   getWinner,
   getAIMove,
-  analyzeGameEvents,
-  generateCoachingTips,
+  analyzePlayerMove,
+  buildGameSummary,
 } from "@/lib/checkers";
 
 export type Difficulty = "easy" | "medium";
@@ -30,10 +31,17 @@ export interface GameState {
   redCount: number;
   blackCount: number;
   moveCount: number;
-  events: GameEvent[];
-  coachingTips: string[];
+  keyMoments: KeyMoment[];
+  gameSummary: GameSummary | null;
   lastMove: Move | null;
   captureChain: Move | null;
+  // running tallies
+  playerMoves: number;
+  aiMoves: number;
+  playerCaptures: number;
+  aiCaptures: number;
+  playerKings: number;
+  aiKings: number;
 }
 
 function countPieces(board: Board) {
@@ -48,180 +56,205 @@ function countPieces(board: Board) {
   return { red, black };
 }
 
-export function useGame() {
-  const [state, setState] = useState<GameState>(() => {
-    const board = createInitialBoard();
-    const { red, black } = countPieces(board);
-    return {
-      board,
-      currentPlayer: "red",
-      selectedCell: null,
-      validMoves: [],
-      status: "playing",
-      winner: null,
-      playerColor: "red",
-      difficulty: "medium",
-      redCount: red,
-      blackCount: black,
-      moveCount: 0,
-      events: [],
-      coachingTips: [],
-      lastMove: null,
-      captureChain: null,
-    };
-  });
+function wasKingPromoted(board: Board, move: Move, player: Player): boolean {
+  const piece = board[move.from.row][move.from.col];
+  if (!piece || piece.isKing) return false;
+  return (
+    (player === "red" && move.to.row === 0) ||
+    (player === "black" && move.to.row === 7)
+  );
+}
 
+const initialBoard = createInitialBoard();
+const { red: initRed, black: initBlack } = countPieces(initialBoard);
+
+function makeInitialState(difficulty: Difficulty = "medium"): GameState {
+  return {
+    board: createInitialBoard(),
+    currentPlayer: "red",
+    selectedCell: null,
+    validMoves: [],
+    status: "playing",
+    winner: null,
+    playerColor: "red",
+    difficulty,
+    redCount: initRed,
+    blackCount: initBlack,
+    moveCount: 0,
+    keyMoments: [],
+    gameSummary: null,
+    lastMove: null,
+    captureChain: null,
+    playerMoves: 0,
+    aiMoves: 0,
+    playerCaptures: 0,
+    aiCaptures: 0,
+    playerKings: 0,
+    aiKings: 0,
+  };
+}
+
+export function useGame() {
+  const [state, setState] = useState<GameState>(() => makeInitialState());
   const aiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const resetGame = useCallback((difficulty?: Difficulty) => {
     if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
-    const board = createInitialBoard();
-    const { red, black } = countPieces(board);
-    setState((prev) => ({
-      board,
-      currentPlayer: "red",
-      selectedCell: null,
-      validMoves: [],
-      status: "playing",
-      winner: null,
-      playerColor: "red",
-      difficulty: difficulty ?? prev.difficulty,
-      redCount: red,
-      blackCount: black,
-      moveCount: 0,
-      events: [],
-      coachingTips: [],
-      lastMove: null,
-      captureChain: null,
-    }));
+    setState((prev) => makeInitialState(difficulty ?? prev.difficulty));
   }, []);
 
   const setDifficulty = useCallback((difficulty: Difficulty) => {
     setState((prev) => ({ ...prev, difficulty }));
   }, []);
 
-  const selectCell = useCallback(
-    (pos: Position) => {
-      setState((prev) => {
-        if (prev.status !== "playing" || prev.currentPlayer !== prev.playerColor) {
-          return prev;
-        }
+  const selectCell = useCallback((pos: Position) => {
+    setState((prev) => {
+      if (prev.status !== "playing" || prev.currentPlayer !== prev.playerColor) return prev;
 
-        const piece = prev.board[pos.row][pos.col];
+      const piece = prev.board[pos.row][pos.col];
 
-        if (prev.captureChain) {
-          const move = prev.validMoves.find(
-            (m) => m.to.row === pos.row && m.to.col === pos.col
-          );
-          if (move) {
-            return executePlayerMove(prev, move);
-          }
-          return prev;
-        }
-
-        if (prev.selectedCell) {
-          const move = prev.validMoves.find(
-            (m) => m.to.row === pos.row && m.to.col === pos.col
-          );
-          if (move) {
-            return executePlayerMove(prev, move);
-          }
-          if (piece && piece.player === prev.playerColor) {
-            const moves = getMovesFrom(prev.board, pos);
-            return { ...prev, selectedCell: pos, validMoves: moves };
-          }
-          return { ...prev, selectedCell: null, validMoves: [] };
-        }
-
-        if (piece && piece.player === prev.playerColor) {
-          const moves = getMovesFrom(prev.board, pos);
-          return { ...prev, selectedCell: pos, validMoves: moves };
-        }
-
+      // Ongoing capture chain
+      if (prev.captureChain) {
+        const move = prev.validMoves.find(
+          (m) => m.to.row === pos.row && m.to.col === pos.col
+        );
+        if (move) return executePlayerMove(prev, move);
         return prev;
-      });
-    },
-    []
-  );
+      }
 
+      // Cell already selected
+      if (prev.selectedCell) {
+        const move = prev.validMoves.find(
+          (m) => m.to.row === pos.row && m.to.col === pos.col
+        );
+        if (move) return executePlayerMove(prev, move);
+        if (piece && piece.player === prev.playerColor) {
+          return { ...prev, selectedCell: pos, validMoves: getMovesFrom(prev.board, pos) };
+        }
+        return { ...prev, selectedCell: null, validMoves: [] };
+      }
+
+      // Fresh selection
+      if (piece && piece.player === prev.playerColor) {
+        return { ...prev, selectedCell: pos, validMoves: getMovesFrom(prev.board, pos) };
+      }
+
+      return prev;
+    });
+  }, []);
+
+  // AI move effect
   useEffect(() => {
-    if (state.status === "ai_thinking") {
-      aiTimerRef.current = setTimeout(() => {
-        setState((prev) => {
-          if (prev.status !== "ai_thinking") return prev;
-          const move = getAIMove(prev.board, prev.difficulty);
-          if (!move) {
-            const winner = "red";
-            return {
-              ...prev,
-              status: "game_over",
-              winner,
-              coachingTips: generateCoachingTips(prev.events, winner, prev.playerColor),
-            };
-          }
-          const newBoard = applyMove(prev.board, move);
-          const winner = getWinner(newBoard);
-          const { red, black } = countPieces(newBoard);
-          const tips = winner
-            ? generateCoachingTips(prev.events, winner, prev.playerColor)
-            : [];
+    if (state.status !== "ai_thinking") return;
+    aiTimerRef.current = setTimeout(() => {
+      setState((prev) => {
+        if (prev.status !== "ai_thinking") return prev;
 
-          return {
+        const move = getAIMove(prev.board, prev.difficulty);
+        if (!move) {
+          return finishGame(prev, "red");
+        }
+
+        const promoted = wasKingPromoted(prev.board, move, "black");
+        const newBoard = applyMove(prev.board, move);
+        const winner = getWinner(newBoard);
+        const { red, black } = countPieces(newBoard);
+        const newAiCaptures = prev.aiCaptures + move.captures.length;
+        const newAiKings = prev.aiKings + (promoted ? 1 : 0);
+        const newAiMoves = prev.aiMoves + 1;
+
+        if (winner) {
+          return finishGame({
             ...prev,
             board: newBoard,
-            currentPlayer: "red",
-            selectedCell: null,
-            validMoves: [],
-            status: winner ? "game_over" : "playing",
-            winner: winner ?? null,
+            lastMove: move,
             redCount: red,
             blackCount: black,
             moveCount: prev.moveCount + 1,
-            lastMove: move,
-            captureChain: null,
-            coachingTips: tips,
-          };
-        });
-      }, 600);
-    }
-    return () => {
-      if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
-    };
+            aiMoves: newAiMoves,
+            aiCaptures: newAiCaptures,
+            aiKings: newAiKings,
+          }, winner);
+        }
+
+        return {
+          ...prev,
+          board: newBoard,
+          currentPlayer: "red",
+          selectedCell: null,
+          validMoves: [],
+          status: "playing",
+          redCount: red,
+          blackCount: black,
+          moveCount: prev.moveCount + 1,
+          aiMoves: newAiMoves,
+          aiCaptures: newAiCaptures,
+          aiKings: newAiKings,
+          lastMove: move,
+          captureChain: null,
+        };
+      });
+    }, 650);
+
+    return () => { if (aiTimerRef.current) clearTimeout(aiTimerRef.current); };
   }, [state.status]);
 
   return { state, selectCell, resetGame, setDifficulty };
 }
 
+function finishGame(prev: GameState, winner: Player): GameState {
+  const summary = buildGameSummary({
+    winner,
+    playerColor: prev.playerColor,
+    totalMoves: prev.moveCount,
+    playerMoves: prev.playerMoves,
+    aiMoves: prev.aiMoves,
+    playerCaptures: prev.playerCaptures,
+    aiCaptures: prev.aiCaptures,
+    playerKings: prev.playerKings,
+    aiKings: prev.aiKings,
+    keyMoments: prev.keyMoments,
+  });
+  return {
+    ...prev,
+    status: "game_over",
+    winner,
+    gameSummary: summary,
+  };
+}
+
 function executePlayerMove(prev: GameState, move: Move): GameState {
-  const newEvents = analyzeGameEvents(prev.board, move, prev.playerColor, prev.board);
+  const turn = prev.moveCount + 1;
+  const newMoments = analyzePlayerMove(prev.board, move, prev.playerColor, turn);
+  const promoted = wasKingPromoted(prev.board, move, prev.playerColor);
   const newBoard = applyMove(prev.board, move);
   const winner = getWinner(newBoard);
   const { red, black } = countPieces(newBoard);
 
+  const newPlayerCaptures = prev.playerCaptures + move.captures.length;
+  const newPlayerKings = prev.playerKings + (promoted ? 1 : 0);
+  const newPlayerMoves = prev.playerMoves + 1;
+  const allMoments = [...prev.keyMoments, ...newMoments];
+
   if (winner) {
-    const tips = generateCoachingTips(
-      [...prev.events, ...newEvents],
-      winner,
-      prev.playerColor
-    );
-    return {
+    return finishGame({
       ...prev,
       board: newBoard,
-      currentPlayer: winner === prev.playerColor ? prev.playerColor : (prev.playerColor === "red" ? "black" : "red"),
       selectedCell: null,
       validMoves: [],
-      status: "game_over",
-      winner,
       redCount: red,
       blackCount: black,
-      moveCount: prev.moveCount + 1,
-      events: [...prev.events, ...newEvents],
-      coachingTips: tips,
+      moveCount: turn,
+      keyMoments: allMoments,
+      playerMoves: newPlayerMoves,
+      playerCaptures: newPlayerCaptures,
+      playerKings: newPlayerKings,
       lastMove: move,
       captureChain: null,
-    };
+    }, winner);
   }
 
+  // Check for continued capture chain
   if (move.captures.length > 0) {
     const furtherJumps = getAllMoves(newBoard, prev.playerColor).filter(
       (m) =>
@@ -229,7 +262,6 @@ function executePlayerMove(prev: GameState, move: Move): GameState {
         m.from.col === move.to.col &&
         m.captures.length > 0
     );
-
     if (furtherJumps.length > 0) {
       return {
         ...prev,
@@ -239,7 +271,11 @@ function executePlayerMove(prev: GameState, move: Move): GameState {
         status: "playing",
         redCount: red,
         blackCount: black,
-        events: [...prev.events, ...newEvents],
+        moveCount: turn,
+        keyMoments: allMoments,
+        playerMoves: newPlayerMoves,
+        playerCaptures: newPlayerCaptures,
+        playerKings: newPlayerKings,
         lastMove: move,
         captureChain: move,
       };
@@ -255,8 +291,11 @@ function executePlayerMove(prev: GameState, move: Move): GameState {
     status: "ai_thinking",
     redCount: red,
     blackCount: black,
-    moveCount: prev.moveCount + 1,
-    events: [...prev.events, ...newEvents],
+    moveCount: turn,
+    keyMoments: allMoments,
+    playerMoves: newPlayerMoves,
+    playerCaptures: newPlayerCaptures,
+    playerKings: newPlayerKings,
     lastMove: move,
     captureChain: null,
   };

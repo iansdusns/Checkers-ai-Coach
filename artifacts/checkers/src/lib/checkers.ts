@@ -18,10 +18,49 @@ export interface Move {
   captures: Position[];
 }
 
-export interface GameEvent {
-  type: "missed_capture" | "exposed_king" | "king_promoted" | "multi_jump" | "piece_lost" | "good_move";
-  message: string;
-  detail?: string;
+export type EventType =
+  | "missed_capture"
+  | "exposed_king"
+  | "king_promoted"
+  | "multi_jump"
+  | "good_capture"
+  | "safe_advance";
+
+export interface KeyMoment {
+  turn: number;
+  type: EventType;
+  player: Player;
+  from: Position;
+  to: Position;
+  captureCount: number;
+  label: string;
+  detail: string;
+  impact: "positive" | "negative" | "neutral";
+}
+
+export interface GameSummary {
+  winner: Player;
+  playerWon: boolean;
+  totalMoves: number;
+  playerMoves: number;
+  aiMoves: number;
+  playerCaptures: number;
+  aiCaptures: number;
+  playerKingsPromoted: number;
+  aiKingsPromoted: number;
+  missedCaptures: number;
+  exposedKings: number;
+  multiJumps: number;
+  performanceScore: number;
+  grade: "S" | "A" | "B" | "C" | "D" | "F";
+  keyMoments: KeyMoment[];
+  tips: string[];
+}
+
+export function posToAlg(pos: Position): string {
+  const col = String.fromCharCode(97 + pos.col);
+  const row = 8 - pos.row;
+  return `${col}${row}`;
 }
 
 export function createInitialBoard(): Board {
@@ -161,12 +200,8 @@ export function applyMove(board: Board, move: Move): Board {
   }
 
   const promoted =
-    (!piece.isKing &&
-      piece.player === "red" &&
-      move.to.row === 0) ||
-    (!piece.isKing &&
-      piece.player === "black" &&
-      move.to.row === 7);
+    (!piece.isKing && piece.player === "red" && move.to.row === 0) ||
+    (!piece.isKing && piece.player === "black" && move.to.row === 7);
 
   newBoard[move.to.row][move.to.col] = {
     player: piece.player,
@@ -281,109 +316,208 @@ export function getAIMove(
   return bestMove;
 }
 
-export function analyzeGameEvents(
+export function analyzePlayerMove(
   board: Board,
   move: Move,
   player: Player,
-  prevBoard: Board
-): GameEvent[] {
-  const events: GameEvent[] = [];
-  const piece = prevBoard[move.from.row][move.from.col];
+  turn: number
+): KeyMoment[] {
+  const moments: KeyMoment[] = [];
+  const piece = board[move.from.row][move.from.col];
+  if (!piece) return moments;
 
-  if (!piece) return events;
-
-  const allMoves = getAllMoves(prevBoard, player);
+  const allMoves = getAllMoves(board, player);
   const availableCaptures = allMoves.filter((m) => m.captures.length > 0);
+
+  // Missed capture
   if (availableCaptures.length > 0 && move.captures.length === 0) {
-    events.push({
+    moments.push({
+      turn,
       type: "missed_capture",
-      message: "Missed capture opportunity",
-      detail: "You could have captured an opponent's piece but chose not to.",
+      player,
+      from: move.from,
+      to: move.to,
+      captureCount: 0,
+      label: "Missed capture",
+      detail: `You skipped a forced capture at ${posToAlg(availableCaptures[0].from)}→${posToAlg(availableCaptures[0].to)}. Captures are mandatory in checkers.`,
+      impact: "negative",
     });
   }
 
+  // Multi-jump
+  if (move.captures.length > 1) {
+    moments.push({
+      turn,
+      type: "multi_jump",
+      player,
+      from: move.from,
+      to: move.to,
+      captureCount: move.captures.length,
+      label: `${move.captures.length}× combo!`,
+      detail: `Excellent chain capture — you removed ${move.captures.length} pieces in one turn from ${posToAlg(move.from)} to ${posToAlg(move.to)}.`,
+      impact: "positive",
+    });
+  } else if (move.captures.length === 1) {
+    moments.push({
+      turn,
+      type: "good_capture",
+      player,
+      from: move.from,
+      to: move.to,
+      captureCount: 1,
+      label: "Capture",
+      detail: `Captured an opponent piece — ${posToAlg(move.from)}→${posToAlg(move.to)}.`,
+      impact: "positive",
+    });
+  }
+
+  // King promotion
+  const promoted =
+    (!piece.isKing && player === "red" && move.to.row === 0) ||
+    (!piece.isKing && player === "black" && move.to.row === 7);
+  if (promoted) {
+    moments.push({
+      turn,
+      type: "king_promoted",
+      player,
+      from: move.from,
+      to: move.to,
+      captureCount: 0,
+      label: "King crowned!",
+      detail: `Your piece at ${posToAlg(move.to)} was promoted to king — it can now move in all 4 directions.`,
+      impact: "positive",
+    });
+  }
+
+  // Exposed king check
   const newBoard = applyMove(board, move);
-  const opponentMoves = getAllMoves(newBoard, player === "red" ? "black" : "red");
   const newPiece = newBoard[move.to.row][move.to.col];
   if (newPiece?.isKing) {
-    for (const oppMove of opponentMoves) {
-      if (oppMove.captures.some(
-        (c) => c.row === move.to.row && c.col === move.to.col
-      )) {
-        events.push({
-          type: "exposed_king",
-          message: "King exposed to capture",
-          detail: "Your king is now in a position where it can be captured on the next move.",
-        });
-        break;
-      }
+    const opponentMoves = getAllMoves(newBoard, player === "red" ? "black" : "red");
+    const vulnerable = opponentMoves.some((m) =>
+      m.captures.some((c) => c.row === move.to.row && c.col === move.to.col)
+    );
+    if (vulnerable) {
+      moments.push({
+        turn,
+        type: "exposed_king",
+        player,
+        from: move.from,
+        to: move.to,
+        captureCount: 0,
+        label: "King exposed",
+        detail: `Moving your king to ${posToAlg(move.to)} puts it in immediate capture range. Protect your kings — they're your most valuable pieces.`,
+        impact: "negative",
+      });
     }
   }
 
-  if (move.captures.length > 1) {
-    events.push({
-      type: "multi_jump",
-      message: "Multi-jump executed!",
-      detail: `You captured ${move.captures.length} pieces in a single turn.`,
-    });
-  }
-
-  const promoted =
-    (!piece.isKing && piece.player === "red" && move.to.row === 0) ||
-    (!piece.isKing && piece.player === "black" && move.to.row === 7);
-  if (promoted) {
-    events.push({
-      type: "king_promoted",
-      message: "King promoted!",
-      detail: "Your piece has been crowned king and can now move in all directions.",
-    });
-  }
-
-  return events;
+  return moments;
 }
 
-export function generateCoachingTips(
-  events: GameEvent[],
-  winner: Player,
-  playerColor: Player
-): string[] {
-  const tips: string[] = [];
+function computeGrade(score: number): GameSummary["grade"] {
+  if (score >= 90) return "S";
+  if (score >= 78) return "A";
+  if (score >= 62) return "B";
+  if (score >= 46) return "C";
+  if (score >= 30) return "D";
+  return "F";
+}
+
+export function buildGameSummary(params: {
+  winner: Player;
+  playerColor: Player;
+  totalMoves: number;
+  playerMoves: number;
+  aiMoves: number;
+  playerCaptures: number;
+  aiCaptures: number;
+  playerKings: number;
+  aiKings: number;
+  keyMoments: KeyMoment[];
+}): GameSummary {
+  const {
+    winner, playerColor, totalMoves,
+    playerMoves, aiMoves,
+    playerCaptures, aiCaptures,
+    playerKings, aiKings,
+    keyMoments,
+  } = params;
+
   const playerWon = winner === playerColor;
 
-  const missedCaptures = events.filter((e) => e.type === "missed_capture").length;
-  const exposedKings = events.filter((e) => e.type === "exposed_king").length;
-  const multiJumps = events.filter((e) => e.type === "multi_jump").length;
-  const promotions = events.filter((e) => e.type === "king_promoted").length;
+  const missedCaptures = keyMoments.filter(
+    (m) => m.player === playerColor && m.type === "missed_capture"
+  ).length;
+  const exposedKings = keyMoments.filter(
+    (m) => m.player === playerColor && m.type === "exposed_king"
+  ).length;
+  const multiJumps = keyMoments.filter(
+    (m) => m.player === playerColor && m.type === "multi_jump"
+  ).length;
+
+  // Score: starts at 50 (base), adjusted by game events
+  let score = playerWon ? 65 : 35;
+  score -= missedCaptures * 12;
+  score -= exposedKings * 8;
+  score += multiJumps * 10;
+  score += playerKings * 5;
+  score += Math.min(playerCaptures * 3, 15);
+  // Efficiency bonus: fewer moves relative to captures
+  if (playerMoves > 0 && playerCaptures / playerMoves > 0.3) score += 8;
+  score = Math.max(0, Math.min(100, score));
+
+  const grade = computeGrade(score);
+
+  // Generate tips
+  const tips: string[] = [];
 
   if (missedCaptures > 0) {
-    tips.push(`You missed ${missedCaptures} capture ${missedCaptures === 1 ? "opportunity" : "opportunities"} — in checkers, captures are mandatory when available.`);
+    tips.push(`You missed ${missedCaptures} mandatory capture${missedCaptures > 1 ? "s" : ""}. In standard checkers, if a capture is available you must take it — skipping one is an illegal move.`);
   }
-
   if (exposedKings > 0) {
-    tips.push(`${exposedKings === 1 ? "A move" : "Some moves"} exposed your king to capture. Protect your kings — they're your most powerful pieces.`);
+    tips.push(`${exposedKings === 1 ? "One of your kings was" : `${exposedKings} of your kings were`} left exposed after a move. Always scan your opponent's captures before moving a king.`);
   }
-
   if (multiJumps > 0) {
-    tips.push(`Great work executing ${multiJumps} multi-jump ${multiJumps === 1 ? "combo" : "combos"}! Chain captures are the key to dominating the board.`);
+    tips.push(`You executed ${multiJumps} chain capture${multiJumps > 1 ? "s" : ""}. Chain jumps are one of the strongest tactics in checkers — keep looking for them.`);
+  }
+  if (playerKings > 0) {
+    tips.push(`You promoted ${playerKings} piece${playerKings > 1 ? "s" : ""} to king. Advancing aggressively is a hallmark of strong play.`);
+  }
+  if (!playerWon && aiCaptures > playerCaptures) {
+    tips.push(`The AI captured ${aiCaptures - playerCaptures} more piece${aiCaptures - playerCaptures > 1 ? "s" : ""} than you. Prioritize piece safety — avoid leaving pieces undefended on the flanks.`);
+  }
+  if (missedCaptures === 0 && playerWon) {
+    tips.push("Perfect capture compliance — you never skipped a forced capture. That's the foundation of flawless checkers play.");
   }
 
-  if (promotions > 0) {
-    tips.push(`You successfully promoted ${promotions} ${promotions === 1 ? "piece" : "pieces"} to king. Advancing pieces aggressively is a sign of strong play.`);
-  }
-
-  if (playerWon) {
-    tips.push("Excellent game! You controlled the board and outplayed your opponent strategically.");
-    if (missedCaptures === 0) {
-      tips.push("You never missed a capture — perfect rule compliance and tactical awareness.");
-    }
+  // General strategic tips based on result
+  if (!playerWon) {
+    tips.push("Control the center. Pieces on d4, e4, d5, and e5 have the most diagonal options and are hardest to capture.");
+    tips.push("Try to trade pieces only when it gives you a positional advantage — avoid exchanges that leave your side of the board open.");
   } else {
-    tips.push("Tough loss. Focus on controlling the center of the board to limit your opponent's options.");
-    tips.push("Try to always think 2-3 moves ahead, anticipating your opponent's responses.");
+    tips.push("Great win! Try bumping the difficulty to Medium to face a deeper thinking AI opponent.");
   }
 
-  if (tips.length === 0) {
-    tips.push(playerWon ? "Solid performance! Keep studying opening theory to improve further." : "Keep practicing! Every game teaches you something new.");
-  }
+  // Trim to max 5 tips
+  const finalTips = tips.slice(0, 5);
 
-  return tips;
+  return {
+    winner,
+    playerWon,
+    totalMoves,
+    playerMoves,
+    aiMoves,
+    playerCaptures,
+    aiCaptures,
+    playerKingsPromoted: playerKings,
+    aiKingsPromoted: aiKings,
+    missedCaptures,
+    exposedKings,
+    multiJumps,
+    performanceScore: score,
+    grade,
+    keyMoments,
+    tips: finalTips,
+  };
 }
